@@ -24,8 +24,7 @@ include(AwsFeatureTests)
 include(AwsSanitizers)
 include(AwsSIMD)
 
-set(CMAKE_CXX_STANDARD_LIBRARIES "/usr/lib/libexecinfo.a")
-message(STATUS "hello there!")
+set(CMAKE_C_STANDARD_LIBRARIES "/usr/lib/libexecinfo.a") #tklebanoff: added for Alpine
 
 set(GENERATED_ROOT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
 set(GENERATED_INCLUDE_DIR "${GENERATED_ROOT_DIR}/include")
