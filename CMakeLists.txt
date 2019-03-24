@@ -17,6 +17,7 @@ option(STATIC_CRT "Windows specific option that to specify static/dynamic run-ti
 project(aws-c-common LANGUAGES C VERSION 0.1.0)
 
 set(CMAKE_CXX_STANDARD_LIBRARIES "/usr/lib/libexecinfo.a")
+message(STATUS "hello there!")
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(AwsCFlags)
