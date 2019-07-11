@@ -15,7 +15,6 @@
 
 #include <aws/common/encoding.h>
 
-#include <assert.h>
 #include <ctype.h>
 #include <stdlib.h>
 
@@ -33,14 +32,14 @@ static inline size_t aws_common_private_base64_decode_sse41(const unsigned char 
     (void)in;
     (void)out;
     (void)len;
-    assert(false);
+    AWS_ASSERT(false);
     return (size_t)-1; /* unreachable */
 }
 static inline void aws_common_private_base64_encode_sse41(const unsigned char *in, unsigned char *out, size_t len) {
     (void)in;
     (void)out;
     (void)len;
-    assert(false);
+    AWS_ASSERT(false);
 }
 static inline bool aws_common_private_has_avx2(void) {
     return false;
@@ -75,7 +74,7 @@ static const uint8_t BASE64_DECODING_TABLE[256] = {
 /* clang-format on */
 
 int aws_hex_compute_encoded_len(size_t to_encode_len, size_t *encoded_length) {
-    assert(encoded_length);
+    AWS_ASSERT(encoded_length);
 
     size_t temp = (to_encode_len << 1) + 1;
 
@@ -89,8 +88,8 @@ int aws_hex_compute_encoded_len(size_t to_encode_len, size_t *encoded_length) {
 }
 
 int aws_hex_encode(const struct aws_byte_cursor *AWS_RESTRICT to_encode, struct aws_byte_buf *AWS_RESTRICT output) {
-    assert(to_encode->ptr);
-    assert(output->buffer);
+    AWS_PRECONDITION(aws_byte_cursor_is_valid(to_encode));
+    AWS_PRECONDITION(aws_byte_buf_is_valid(output));
 
     size_t encoded_len = 0;
 
@@ -115,6 +114,33 @@ int aws_hex_encode(const struct aws_byte_cursor *AWS_RESTRICT to_encode, struct 
     return AWS_OP_SUCCESS;
 }
 
+int aws_hex_encode_append_dynamic(
+    const struct aws_byte_cursor *AWS_RESTRICT to_encode,
+    struct aws_byte_buf *AWS_RESTRICT output) {
+    AWS_ASSERT(to_encode->ptr);
+    AWS_ASSERT(aws_byte_buf_is_valid(output));
+
+    size_t encoded_len = 0;
+    if (AWS_UNLIKELY(aws_add_size_checked(to_encode->len, to_encode->len, &encoded_len))) {
+        return AWS_OP_ERR;
+    }
+
+    if (AWS_UNLIKELY(aws_byte_buf_reserve_relative(output, encoded_len))) {
+        return AWS_OP_ERR;
+    }
+
+    size_t written = output->len;
+    for (size_t i = 0; i < to_encode->len; ++i) {
+
+        output->buffer[written++] = HEX_CHARS[to_encode->ptr[i] >> 4 & 0x0f];
+        output->buffer[written++] = HEX_CHARS[to_encode->ptr[i] & 0x0f];
+    }
+
+    output->len += encoded_len;
+
+    return AWS_OP_SUCCESS;
+}
+
 static int s_hex_decode_char_to_int(char character, uint8_t *int_val) {
     if (character >= 'a' && character <= 'f') {
         *int_val = (uint8_t)(10 + (character - 'a'));
@@ -135,7 +161,7 @@ static int s_hex_decode_char_to_int(char character, uint8_t *int_val) {
 }
 
 int aws_hex_compute_decoded_len(size_t to_decode_len, size_t *decoded_len) {
-    assert(decoded_len);
+    AWS_ASSERT(decoded_len);
 
     size_t temp = (to_decode_len + 1);
 
@@ -148,8 +174,8 @@ int aws_hex_compute_decoded_len(size_t to_decode_len, size_t *decoded_len) {
 }
 
 int aws_hex_decode(const struct aws_byte_cursor *AWS_RESTRICT to_decode, struct aws_byte_buf *AWS_RESTRICT output) {
-    assert(to_decode->ptr);
-    assert(output->buffer);
+    AWS_PRECONDITION(aws_byte_cursor_is_valid(to_decode));
+    AWS_PRECONDITION(aws_byte_buf_is_valid(output));
 
     size_t decoded_length = 0;
 
@@ -194,7 +220,7 @@ int aws_hex_decode(const struct aws_byte_cursor *AWS_RESTRICT to_decode, struct 
 }
 
 int aws_base64_compute_encoded_len(size_t to_encode_len, size_t *encoded_len) {
-    assert(encoded_len);
+    AWS_ASSERT(encoded_len);
 
     size_t tmp = to_encode_len + 2;
 
@@ -216,8 +242,8 @@ int aws_base64_compute_encoded_len(size_t to_encode_len, size_t *encoded_len) {
 }
 
 int aws_base64_compute_decoded_len(const struct aws_byte_cursor *AWS_RESTRICT to_decode, size_t *decoded_len) {
-    assert(to_decode);
-    assert(decoded_len);
+    AWS_ASSERT(to_decode);
+    AWS_ASSERT(decoded_len);
 
     const size_t len = to_decode->len;
     const uint8_t *input = to_decode->ptr;
@@ -250,22 +276,30 @@ int aws_base64_compute_decoded_len(const struct aws_byte_cursor *AWS_RESTRICT to
 }
 
 int aws_base64_encode(const struct aws_byte_cursor *AWS_RESTRICT to_encode, struct aws_byte_buf *AWS_RESTRICT output) {
-    assert(to_encode->ptr);
-    assert(output->buffer);
+    AWS_ASSERT(to_encode->ptr);
+    AWS_ASSERT(output->buffer);
 
+    size_t terminated_length = 0;
     size_t encoded_length = 0;
-    if (AWS_UNLIKELY(aws_base64_compute_encoded_len(to_encode->len, &encoded_length))) {
+    if (AWS_UNLIKELY(aws_base64_compute_encoded_len(to_encode->len, &terminated_length))) {
         return AWS_OP_ERR;
     }
 
-    if (AWS_UNLIKELY(output->capacity < encoded_length)) {
+    if (AWS_UNLIKELY(output->capacity < terminated_length)) {
         return aws_raise_error(AWS_ERROR_SHORT_BUFFER);
     }
+
+    /*
+     * For convenience to standard C functions expecting a null-terminated
+     * string, the output is terminated. As the encoding itself can be used in
+     * various ways, however, its length should never account for that byte.
+     */
+    encoded_length = (terminated_length - 1);
 
     if (aws_common_private_has_avx2()) {
         output->len = encoded_length;
         aws_common_private_base64_encode_sse41(to_encode->ptr, output->buffer, to_encode->len);
-        output->buffer[encoded_length - 1] = 0;
+        output->buffer[encoded_length] = 0;
         return AWS_OP_SUCCESS;
     }
 
@@ -301,7 +335,7 @@ int aws_base64_encode(const struct aws_byte_cursor *AWS_RESTRICT to_encode, stru
     }
 
     /* it's a string add the null terminator. */
-    output->buffer[encoded_length - 1] = 0;
+    output->buffer[encoded_length] = 0;
 
     output->len = encoded_length;
     return AWS_OP_SUCCESS;
@@ -339,12 +373,12 @@ int aws_base64_decode(const struct aws_byte_cursor *AWS_RESTRICT to_decode, stru
         return AWS_OP_SUCCESS;
     }
 
-    int64_t block_count = (int)to_decode->len / 4;
+    int64_t block_count = (int64_t)to_decode->len / 4;
     size_t string_index = 0;
     uint8_t value1 = 0, value2 = 0, value3 = 0, value4 = 0;
     int64_t buffer_index = 0;
 
-    for (int32_t i = 0; i < block_count - 1; ++i) {
+    for (int64_t i = 0; i < block_count - 1; ++i) {
         if (AWS_UNLIKELY(
                 s_base64_get_decoded_value(to_decode->ptr[string_index++], &value1, 0) ||
                 s_base64_get_decoded_value(to_decode->ptr[string_index++], &value2, 0) ||

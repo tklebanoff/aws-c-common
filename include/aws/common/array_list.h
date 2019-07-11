@@ -18,7 +18,6 @@
 #include <aws/common/common.h>
 #include <aws/common/math.h>
 
-#include <assert.h>
 #include <stdlib.h>
 
 #define AWS_ARRAY_LIST_DEBUG_FILL 0xDD
@@ -69,6 +68,12 @@ void aws_array_list_init_static(
     size_t item_size);
 
 /**
+ * Set of properties of a valid aws_array_list.
+ */
+AWS_STATIC_IMPL
+bool aws_array_list_is_valid(const struct aws_array_list *AWS_RESTRICT list);
+
+/**
  * Deallocates any memory that was allocated for this list, and resets list for reuse or deletion.
  */
 AWS_STATIC_IMPL
@@ -102,6 +107,15 @@ int aws_array_list_pop_front(struct aws_array_list *AWS_RESTRICT list);
  */
 AWS_STATIC_IMPL
 void aws_array_list_pop_front_n(struct aws_array_list *AWS_RESTRICT list, size_t n);
+
+/**
+ * Deletes the element this index in the list if it exists.
+ * If element does not exist, AWS_ERROR_INVALID_INDEX will be raised.
+ * This call results in shifting all remaining elements towards the front.
+ * Avoid this call unless that is intended behavior.
+ */
+AWS_STATIC_IMPL
+int aws_array_list_erase(struct aws_array_list *AWS_RESTRICT list, size_t index);
 
 /**
  * Copies the element at the end of the list if it exists. If list is empty, AWS_ERROR_LIST_EMPTY will be raised.

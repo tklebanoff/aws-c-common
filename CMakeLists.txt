@@ -86,12 +86,12 @@ else ()
         set(PLATFORM_LIBS -pthread pthread ${CORE_FOUNDATION_LIB})
     elseif (${CMAKE_SYSTEM_NAME} STREQUAL "Linux") # Android does not link to libpthread nor librt, so this is fine
         set(PLATFORM_CFLAGS -pthread)
-        set(PLATFORM_LIBS -pthread pthread rt)
+        set(PLATFORM_LIBS m -pthread pthread rt)
     elseif(CMAKE_SYSTEM_NAME STREQUAL "FreeBSD")
-        set(PLATFORM_LIBS thr execinfo)
+        set(PLATFORM_LIBS m thr execinfo)
     elseif(CMAKE_SYSTEM_NAME STREQUAL "NetBSD")
         set(PLATFORM_CFLAGS -pthread)
-        set(PLATFORM_LIBS -pthread pthread execinfo)
+        set(PLATFORM_LIBS m -pthread pthread execinfo)
     endif()
 
 endif()
@@ -223,7 +223,9 @@ configure_file(${CONFIG_HEADER_TEMPLATE}
 
 if (NOT CMAKE_CROSSCOMPILING)
     include(CTest)
-    add_subdirectory(tests)
+    if (BUILD_TESTING)
+        add_subdirectory(tests)
+    endif()
 endif()
 
 include(CPackConfig)

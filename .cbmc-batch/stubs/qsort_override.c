@@ -1,5 +1,5 @@
 /*
- * Copyright 2010-2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+ * Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License").
  * You may not use this file except in compliance with the License.
@@ -13,6 +13,8 @@
  * permissions and limitations under the License.
  */
 
+#include <stdint.h>
+
 void qsort(void *base, __CPROVER_size_t num, __CPROVER_size_t size, int (*compar)(const void *, const void *)) {
     __CPROVER_precondition(__CPROVER_r_ok(base, num * size), "qsort base region readable");
     __CPROVER_precondition(__CPROVER_w_ok(base, num * size), "qsort base region writeable");
@@ -21,5 +23,5 @@ void qsort(void *base, __CPROVER_size_t num, __CPROVER_size_t size, int (*compar
     __CPROVER_size_t index_b;
     __CPROVER_assume(index_b < num);
     __CPROVER_assume(index_a != index_b);
-    compare((void *)((unsigned int *)base + (size * index_a)), (void *)((unsigned int *)base + (size * index_b)));
+    compare((uint8_t *)base + (size * index_a), (uint8_t *)base + (size * index_b), size);
 }

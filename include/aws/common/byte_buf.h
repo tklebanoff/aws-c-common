@@ -68,12 +68,79 @@ struct aws_byte_cursor {
 /**
  * Signature for function argument to trim APIs
  */
-typedef bool (*aws_byte_predicate_fn)(uint8_t value);
+typedef bool(aws_byte_predicate_fn)(uint8_t value);
 
 AWS_EXTERN_C_BEGIN
 
+/**
+ * Compare two arrays.
+ * Return whether their contents are equivalent.
+ * NULL may be passed as the array pointer if its length is declared to be 0.
+ */
+AWS_COMMON_API
+bool aws_array_eq(const void *const array_a, const size_t len_a, const void *array_b, const size_t len_b);
+
+/**
+ * Perform a case-insensitive string comparison of two arrays.
+ * Return whether their contents are equivalent.
+ * NULL may be passed as the array pointer if its length is declared to be 0.
+ * The "C" locale is used for comparing upper and lowercase letters.
+ * Data is assumed to be ASCII text, UTF-8 will work fine too.
+ */
+AWS_COMMON_API
+bool aws_array_eq_ignore_case(
+    const void *const array_a,
+    const size_t len_a,
+    const void *const array_b,
+    const size_t len_b);
+
+/**
+ * Compare an array and a null-terminated string.
+ * Returns true if their contents are equivalent.
+ * The array should NOT contain a null-terminator, or the comparison will always return false.
+ * NULL may be passed as the array pointer if its length is declared to be 0.
+ */
+AWS_COMMON_API
+bool aws_array_eq_c_str(const void *const array, const size_t array_len, const char *const c_str);
+
+/**
+ * Perform a case-insensitive string comparison of an array and a null-terminated string.
+ * Return whether their contents are equivalent.
+ * The array should NOT contain a null-terminator, or the comparison will always return false.
+ * NULL may be passed as the array pointer if its length is declared to be 0.
+ * The "C" locale is used for comparing upper and lowercase letters.
+ * Data is assumed to be ASCII text, UTF-8 will work fine too.
+ */
+AWS_COMMON_API
+bool aws_array_eq_c_str_ignore_case(const void *const array, const size_t array_len, const char *const c_str);
+
 AWS_COMMON_API
 int aws_byte_buf_init(struct aws_byte_buf *buf, struct aws_allocator *allocator, size_t capacity);
+
+/**
+ * Initializes an aws_byte_buf structure base on another valid one.
+ * Requires: *src and *allocator are valid objects.
+ * Ensures: *dest is a valid aws_byte_buf with a new backing array dest->buffer
+ * which is a copy of the elements from src->buffer.
+ */
+AWS_COMMON_API int aws_byte_buf_init_copy(
+    struct aws_byte_buf *dest,
+    struct aws_allocator *allocator,
+    const struct aws_byte_buf *src);
+
+/**
+ * Evaluates the set of properties that define the shape of all valid aws_byte_buf structures.
+ * It is also a cheap check, in the sense it run in constant time (i.e., no loops or recursion).
+ */
+AWS_COMMON_API
+bool aws_byte_buf_is_valid(const struct aws_byte_buf *const buf);
+
+/**
+ * Evaluates the set of properties that define the shape of all valid aws_byte_cursor structures.
+ * It is also a cheap check, in the sense it runs in constant time (i.e., no loops or recursion).
+ */
+AWS_COMMON_API
+bool aws_byte_cursor_is_valid(const struct aws_byte_cursor *cursor);
 
 /**
  * Copies src buffer into dest and sets the correct len and capacity.
@@ -100,18 +167,51 @@ AWS_COMMON_API
 void aws_byte_buf_clean_up_secure(struct aws_byte_buf *buf);
 
 /**
+ * Resets the len of the buffer to 0, but does not free the memory. The buffer can then be reused.
+ * Optionally zeroes the contents, if the "zero_contents" flag is true.
+ */
+AWS_COMMON_API
+void aws_byte_buf_reset(struct aws_byte_buf *buf, bool zero_contents);
+
+/**
  * Sets all bytes of buffer to zero and resets len to zero.
  */
 AWS_COMMON_API
 void aws_byte_buf_secure_zero(struct aws_byte_buf *buf);
 
 /**
- * Compares two aws_byte_buf structures
- * Returns true if a has the same length as b and their buffers have the same bytes
- * (or both buffers are null). When both a and b are null the function returns true
+ * Compare two aws_byte_buf structures.
+ * Return whether their contents are equivalent.
  */
 AWS_COMMON_API
-bool aws_byte_buf_eq(const struct aws_byte_buf *a, const struct aws_byte_buf *b);
+bool aws_byte_buf_eq(const struct aws_byte_buf *const a, const struct aws_byte_buf *const b);
+
+/**
+ * Perform a case-insensitive string comparison of two aws_byte_buf structures.
+ * Return whether their contents are equivalent.
+ * The "C" locale is used for comparing upper and lowercase letters.
+ * Data is assumed to be ASCII text, UTF-8 will work fine too.
+ */
+AWS_COMMON_API
+bool aws_byte_buf_eq_ignore_case(const struct aws_byte_buf *const a, const struct aws_byte_buf *const b);
+
+/**
+ * Compare an aws_byte_buf and a null-terminated string.
+ * Returns true if their contents are equivalent.
+ * The buffer should NOT contain a null-terminator, or the comparison will always return false.
+ */
+AWS_COMMON_API
+bool aws_byte_buf_eq_c_str(const struct aws_byte_buf *const buf, const char *const c_str);
+
+/**
+ * Perform a case-insensitive string comparison of an aws_byte_buf and a null-terminated string.
+ * Return whether their contents are equivalent.
+ * The buffer should NOT contain a null-terminator, or the comparison will always return false.
+ * The "C" locale is used for comparing upper and lowercase letters.
+ * Data is assumed to be ASCII text, UTF-8 will work fine too.
+ */
+AWS_COMMON_API
+bool aws_byte_buf_eq_c_str_ignore_case(const struct aws_byte_buf *const buf, const char *const c_str);
 
 /**
  * No copies, no buffer allocations. Iterates over input_str, and returns the next substring between split_on instances.
@@ -192,7 +292,7 @@ int aws_byte_cursor_split_on_char_n(
 AWS_COMMON_API
 struct aws_byte_cursor aws_byte_cursor_right_trim_pred(
     const struct aws_byte_cursor *source,
-    aws_byte_predicate_fn predicate);
+    aws_byte_predicate_fn *predicate);
 
 /**
  * Shrinks a byte cursor from the left for as long as the supplied predicate is true
@@ -200,19 +300,21 @@ struct aws_byte_cursor aws_byte_cursor_right_trim_pred(
 AWS_COMMON_API
 struct aws_byte_cursor aws_byte_cursor_left_trim_pred(
     const struct aws_byte_cursor *source,
-    aws_byte_predicate_fn predicate);
+    aws_byte_predicate_fn *predicate);
 
 /**
  * Shrinks a byte cursor from both sides for as long as the supplied predicate is true
  */
 AWS_COMMON_API
-struct aws_byte_cursor aws_byte_cursor_trim_pred(const struct aws_byte_cursor *source, aws_byte_predicate_fn predicate);
+struct aws_byte_cursor aws_byte_cursor_trim_pred(
+    const struct aws_byte_cursor *source,
+    aws_byte_predicate_fn *predicate);
 
 /**
  * Returns true if the byte cursor's range of bytes all satisfy the predicate
  */
 AWS_COMMON_API
-bool aws_byte_cursor_satisfies_pred(const struct aws_byte_cursor *source, aws_byte_predicate_fn predicate);
+bool aws_byte_cursor_satisfies_pred(const struct aws_byte_cursor *source, aws_byte_predicate_fn *predicate);
 
 /**
  * Copies from to to. If to is too small, AWS_ERROR_DEST_COPY_TOO_SMALL will be
@@ -224,6 +326,50 @@ AWS_COMMON_API
 int aws_byte_buf_append(struct aws_byte_buf *to, const struct aws_byte_cursor *from);
 
 /**
+ * Copies from to to while converting bytes via the passed in lookup table.
+ * If to is too small, AWS_ERROR_DEST_COPY_TOO_SMALL will be
+ * returned. to->len will contain its original size plus the amount of data actually copied to to.
+ *
+ * from and to should not be the same buffer (overlap is not handled)
+ * lookup_table must be at least 256 bytes
+ */
+AWS_COMMON_API
+int aws_byte_buf_append_with_lookup(
+    struct aws_byte_buf *AWS_RESTRICT to,
+    const struct aws_byte_cursor *AWS_RESTRICT from,
+    const uint8_t *lookup_table);
+
+/**
+ * Copies from to to. If to is too small, the buffer will be grown appropriately and
+ * the old contents copied to, before the new contents are appended.
+ *
+ * If the grow fails (overflow or OOM), then an error will be returned.
+ *
+ * from and to may be the same buffer, permitting copying a buffer into itself.
+ */
+AWS_COMMON_API
+int aws_byte_buf_append_dynamic(struct aws_byte_buf *to, const struct aws_byte_cursor *from);
+
+/**
+ * Attempts to increase the capacity of a buffer to the requested capacity
+ *
+ * If the the buffer's capacity is currently larger than the request capacity, the
+ * function does nothing (no shrink is performed).
+ */
+AWS_COMMON_API
+int aws_byte_buf_reserve(struct aws_byte_buf *buffer, size_t requested_capacity);
+
+/**
+ * Convenience function that attempts to increase the capacity of a buffer relative to the current
+ * length.
+ *
+ *  aws_byte_buf_reserve_relative(buf, x) ~~ aws_byte_buf_reserve(buf, buf->len + x)
+ *
+ */
+AWS_COMMON_API
+int aws_byte_buf_reserve_relative(struct aws_byte_buf *buffer, size_t additional_length);
+
+/**
  * Concatenates a variable number of struct aws_byte_buf * into destination.
  * Number of args must be greater than 1. If dest is too small,
  * AWS_ERROR_DEST_COPY_TOO_SMALL will be returned. dest->len will contain the
@@ -233,83 +379,164 @@ AWS_COMMON_API
 int aws_byte_buf_cat(struct aws_byte_buf *dest, size_t number_of_args, ...);
 
 /**
- * Compares two aws_byte_cursor structures
- * Returns true if a has the same length as b and their buffers have the same bytes
- * (or both buffers are null). When both a and b are null the function returns true
+ * Compare two aws_byte_cursor structures.
+ * Return whether their contents are equivalent.
  */
 AWS_COMMON_API
 bool aws_byte_cursor_eq(const struct aws_byte_cursor *a, const struct aws_byte_cursor *b);
 
 /**
- * Compares an aws_byte_cursor against an aws_byte_buf
- * Returns true if a has the same length as b and their buffers have the same bytes
- * (or both buffers are null). When both a and b are null the function returns true
+ * Perform a case-insensitive string comparison of two aws_byte_cursor structures.
+ * Return whether their contents are equivalent.
+ * The "C" locale is used for comparing upper and lowercase letters.
+ * Data is assumed to be ASCII text, UTF-8 will work fine too.
  */
 AWS_COMMON_API
-bool aws_byte_cursor_eq_byte_buf(const struct aws_byte_cursor *a, const struct aws_byte_buf *b);
+bool aws_byte_cursor_eq_ignore_case(const struct aws_byte_cursor *a, const struct aws_byte_cursor *b);
+
+/**
+ * Compare an aws_byte_cursor and an aws_byte_buf.
+ * Return whether their contents are equivalent.
+ */
+AWS_COMMON_API
+bool aws_byte_cursor_eq_byte_buf(const struct aws_byte_cursor *const a, const struct aws_byte_buf *const b);
+
+/**
+ * Perform a case-insensitive string comparison of an aws_byte_cursor and an aws_byte_buf.
+ * Return whether their contents are equivalent.
+ * The "C" locale is used for comparing upper and lowercase letters.
+ * Data is assumed to be ASCII text, UTF-8 will work fine too.
+ */
+AWS_COMMON_API
+bool aws_byte_cursor_eq_byte_buf_ignore_case(const struct aws_byte_cursor *const a, const struct aws_byte_buf *const b);
+
+/**
+ * Compare an aws_byte_cursor and a null-terminated string.
+ * Returns true if their contents are equivalent.
+ * The cursor should NOT contain a null-terminator, or the comparison will always return false.
+ */
+AWS_COMMON_API
+bool aws_byte_cursor_eq_c_str(const struct aws_byte_cursor *const cursor, const char *const c_str);
+
+/**
+ * Perform a case-insensitive string comparison of an aws_byte_cursor and a null-terminated string.
+ * Return whether their contents are equivalent.
+ * The cursor should NOT contain a null-terminator, or the comparison will always return false.
+ * The "C" locale is used for comparing upper and lowercase letters.
+ * Data is assumed to be ASCII text, UTF-8 will work fine too.
+ */
+AWS_COMMON_API
+bool aws_byte_cursor_eq_c_str_ignore_case(const struct aws_byte_cursor *const cursor, const char *const c_str);
+
+/**
+ * Case-insensitive hash function for array containing ASCII or UTF-8 text.
+ */
+AWS_COMMON_API
+uint64_t aws_hash_array_ignore_case(const void *array, const size_t len);
+
+/**
+ * Case-insensitive hash function for aws_byte_cursors stored in an aws_hash_table.
+ * For case-sensitive hashing, use aws_hash_byte_cursor_ptr().
+ */
+AWS_COMMON_API
+uint64_t aws_hash_byte_cursor_ptr_ignore_case(const void *item);
+
+/**
+ * Returns a lookup table for bytes that is the identity transformation with the exception
+ * of uppercase ascii characters getting replaced with lowercase characters.  Used in
+ * caseless comparisons.
+ */
+AWS_COMMON_API
+const uint8_t *aws_lookup_table_to_lower_get(void);
+
+/**
+ * Lexical (byte value) comparison of two byte cursors
+ */
+AWS_COMMON_API
+int aws_byte_cursor_compare_lexical(const struct aws_byte_cursor *lhs, const struct aws_byte_cursor *rhs);
+
+/**
+ * Lexical (byte value) comparison of two byte cursors where the raw values are sent through a lookup table first
+ */
+AWS_COMMON_API
+int aws_byte_cursor_compare_lookup(
+    const struct aws_byte_cursor *lhs,
+    const struct aws_byte_cursor *rhs,
+    const uint8_t *lookup_table);
 
 AWS_EXTERN_C_END
+
+/**
+ */
+#define AWS_BYTE_CUR_INIT_FROM_STRING_LITERAL(literal)                                                                 \
+    { .ptr = (uint8_t *)(const char *)(literal), .len = sizeof(literal) - 1 }
 
 /**
  * For creating a byte buffer from a null-terminated string literal.
  */
 AWS_STATIC_IMPL struct aws_byte_buf aws_byte_buf_from_c_str(const char *c_str) {
     struct aws_byte_buf buf;
-    buf.buffer = (uint8_t *)c_str;
-    buf.len = strlen(c_str);
+    buf.len = (!c_str) ? 0 : strlen(c_str);
     buf.capacity = buf.len;
+    buf.buffer = (buf.capacity == 0) ? NULL : (uint8_t *)c_str;
     buf.allocator = NULL;
+    AWS_POSTCONDITION(aws_byte_buf_is_valid(&buf));
     return buf;
 }
 
 AWS_STATIC_IMPL struct aws_byte_buf aws_byte_buf_from_array(const void *bytes, size_t len) {
+    AWS_PRECONDITION(AWS_MEM_IS_WRITABLE(bytes, len), "Input array [bytes] must be writable up to [len] bytes.");
     struct aws_byte_buf buf;
-    buf.buffer = (uint8_t *)bytes;
+    buf.buffer = (len > 0) ? (uint8_t *)bytes : NULL;
     buf.len = len;
     buf.capacity = len;
     buf.allocator = NULL;
+    AWS_POSTCONDITION(aws_byte_buf_is_valid(&buf));
     return buf;
 }
 
 AWS_STATIC_IMPL struct aws_byte_buf aws_byte_buf_from_empty_array(const void *bytes, size_t capacity) {
+    AWS_PRECONDITION(
+        AWS_MEM_IS_WRITABLE(bytes, capacity), "Input array [bytes] must be writable up to [capacity] bytes.");
     struct aws_byte_buf buf;
-    buf.buffer = (uint8_t *)bytes;
+    buf.buffer = (capacity > 0) ? (uint8_t *)bytes : NULL;
     buf.len = 0;
     buf.capacity = capacity;
     buf.allocator = NULL;
+    AWS_POSTCONDITION(aws_byte_buf_is_valid(&buf));
     return buf;
 }
 
-AWS_STATIC_IMPL struct aws_byte_cursor aws_byte_cursor_from_buf(const struct aws_byte_buf *buf) {
+AWS_STATIC_IMPL struct aws_byte_cursor aws_byte_cursor_from_buf(const struct aws_byte_buf *const buf) {
+    AWS_PRECONDITION(aws_byte_buf_is_valid(buf));
     struct aws_byte_cursor cur;
     cur.ptr = buf->buffer;
     cur.len = buf->len;
+    AWS_POSTCONDITION(aws_byte_cursor_is_valid(&cur));
     return cur;
 }
 
 AWS_STATIC_IMPL struct aws_byte_cursor aws_byte_cursor_from_c_str(const char *c_str) {
-    struct aws_byte_cursor cursor;
-    cursor.ptr = (uint8_t *)c_str;
-    cursor.len = strlen(c_str);
-    return cursor;
-}
-
-AWS_STATIC_IMPL struct aws_byte_cursor aws_byte_cursor_from_array(const void *bytes, size_t len) {
     struct aws_byte_cursor cur;
-    cur.ptr = (uint8_t *)bytes;
-    cur.len = len;
+    cur.ptr = (uint8_t *)c_str;
+    cur.len = (cur.ptr) ? strlen(c_str) : 0;
+    AWS_POSTCONDITION(aws_byte_cursor_is_valid(&cur));
     return cur;
 }
 
-AWS_STATIC_IMPL int aws_byte_buf_init_copy(
-    struct aws_byte_buf *dest,
-    struct aws_allocator *allocator,
-    const struct aws_byte_buf *src) {
-
-    struct aws_byte_cursor src_cur = aws_byte_cursor_from_buf(src);
-    return aws_byte_buf_init_copy_from_cursor(dest, allocator, src_cur);
+AWS_STATIC_IMPL struct aws_byte_cursor aws_byte_cursor_from_array(const void *const bytes, const size_t len) {
+    AWS_PRECONDITION(len == 0 || AWS_MEM_IS_READABLE(bytes, len), "Input array [bytes] must be readable up to [len].");
+    struct aws_byte_cursor cur;
+    cur.ptr = (uint8_t *)bytes;
+    cur.len = len;
+    AWS_POSTCONDITION(aws_byte_cursor_is_valid(&cur));
+    return cur;
 }
 
+#ifdef CBMC
+#    pragma CPROVER check push
+#    pragma CPROVER check disable "unsigned-overflow"
+#endif
 /**
  * If index >= bound, bound > (SIZE_MAX / 2), or index > (SIZE_MAX / 2), returns
  * 0. Otherwise, returns UINTPTR_MAX.  This function is designed to return the correct
@@ -374,6 +601,9 @@ AWS_STATIC_IMPL size_t aws_nospec_mask(size_t index, size_t bound) {
 
     return combined_mask;
 }
+#ifdef CBMC
+#    pragma CPROVER check pop
+#endif
 
 /**
  * Tests if the given aws_byte_cursor has at least len bytes remaining. If so,
@@ -385,7 +615,8 @@ AWS_STATIC_IMPL size_t aws_nospec_mask(size_t index, size_t bound) {
  * Note that if len is above (SIZE_MAX / 2), this function will also treat it as
  * a buffer overflow, and return NULL without changing *buf.
  */
-AWS_STATIC_IMPL struct aws_byte_cursor aws_byte_cursor_advance(struct aws_byte_cursor *cursor, size_t len) {
+AWS_STATIC_IMPL struct aws_byte_cursor aws_byte_cursor_advance(struct aws_byte_cursor *const cursor, const size_t len) {
+    AWS_PRECONDITION(aws_byte_cursor_is_valid(cursor));
     struct aws_byte_cursor rv;
     if (cursor->len > (SIZE_MAX >> 1) || len > (SIZE_MAX >> 1) || len > cursor->len) {
         rv.ptr = NULL;
@@ -397,7 +628,8 @@ AWS_STATIC_IMPL struct aws_byte_cursor aws_byte_cursor_advance(struct aws_byte_c
         cursor->ptr += len;
         cursor->len -= len;
     }
-
+    AWS_POSTCONDITION(aws_byte_cursor_is_valid(cursor));
+    AWS_POSTCONDITION(aws_byte_cursor_is_valid(&rv));
     return rv;
 }
 
@@ -411,7 +643,11 @@ AWS_STATIC_IMPL struct aws_byte_cursor aws_byte_cursor_advance(struct aws_byte_c
  * cursor->ptr points outside the true ptr length.
  */
 
-AWS_STATIC_IMPL struct aws_byte_cursor aws_byte_cursor_advance_nospec(struct aws_byte_cursor *cursor, size_t len) {
+AWS_STATIC_IMPL struct aws_byte_cursor aws_byte_cursor_advance_nospec(
+    struct aws_byte_cursor *const cursor,
+    size_t len) {
+    AWS_PRECONDITION(aws_byte_cursor_is_valid(cursor));
+
     struct aws_byte_cursor rv;
 
     if (len <= cursor->len && len <= (SIZE_MAX >> 1) && cursor->len <= (SIZE_MAX >> 1)) {
@@ -439,6 +675,8 @@ AWS_STATIC_IMPL struct aws_byte_cursor aws_byte_cursor_advance_nospec(struct aws
         rv.len = 0;
     }
 
+    AWS_POSTCONDITION(aws_byte_cursor_is_valid(cursor));
+    AWS_POSTCONDITION(aws_byte_cursor_is_valid(&rv));
     return rv;
 }
 
@@ -557,16 +795,22 @@ AWS_STATIC_IMPL bool aws_byte_cursor_read_be64(struct aws_byte_cursor *cur, uint
  * false.
  */
 AWS_STATIC_IMPL bool aws_byte_buf_advance(
-    struct aws_byte_buf *AWS_RESTRICT buffer,
-    struct aws_byte_buf *AWS_RESTRICT output,
-    size_t len) {
+    struct aws_byte_buf *const AWS_RESTRICT buffer,
+    struct aws_byte_buf *const AWS_RESTRICT output,
+    const size_t len) {
+    AWS_PRECONDITION(aws_byte_buf_is_valid(buffer));
+    AWS_PRECONDITION(aws_byte_buf_is_valid(output));
     if (buffer->capacity - buffer->len >= len) {
         *output = aws_byte_buf_from_array(buffer->buffer + buffer->len, len);
         buffer->len += len;
         output->len = 0;
+        AWS_POSTCONDITION(aws_byte_buf_is_valid(buffer));
+        AWS_POSTCONDITION(aws_byte_buf_is_valid(output));
         return true;
     } else {
-        memset(output, 0, sizeof(*output));
+        AWS_ZERO_STRUCT(*output);
+        AWS_POSTCONDITION(aws_byte_buf_is_valid(buffer));
+        AWS_POSTCONDITION(aws_byte_buf_is_valid(output));
         return false;
     }
 }
@@ -582,14 +826,18 @@ AWS_STATIC_IMPL bool aws_byte_buf_write(
     struct aws_byte_buf *AWS_RESTRICT buf,
     const uint8_t *AWS_RESTRICT src,
     size_t len) {
+    AWS_PRECONDITION(aws_byte_buf_is_valid(buf));
+    AWS_PRECONDITION(AWS_MEM_IS_WRITABLE(src, len), "Input array [src] must be readable up to [len] bytes.");
 
     if (buf->len > (SIZE_MAX >> 1) || len > (SIZE_MAX >> 1) || buf->len + len > buf->capacity) {
+        AWS_POSTCONDITION(aws_byte_buf_is_valid(buf));
         return false;
     }
 
     memcpy(buf->buffer + buf->len, src, len);
     buf->len += len;
 
+    AWS_POSTCONDITION(aws_byte_buf_is_valid(buf));
     return true;
 }
 
@@ -603,6 +851,8 @@ AWS_STATIC_IMPL bool aws_byte_buf_write(
 AWS_STATIC_IMPL bool aws_byte_buf_write_from_whole_buffer(
     struct aws_byte_buf *AWS_RESTRICT buf,
     struct aws_byte_buf src) {
+    AWS_PRECONDITION(aws_byte_buf_is_valid(buf));
+    AWS_PRECONDITION(aws_byte_buf_is_valid(&src));
     return aws_byte_buf_write(buf, src.buffer, src.len);
 }
 
@@ -616,6 +866,8 @@ AWS_STATIC_IMPL bool aws_byte_buf_write_from_whole_buffer(
 AWS_STATIC_IMPL bool aws_byte_buf_write_from_whole_cursor(
     struct aws_byte_buf *AWS_RESTRICT buf,
     struct aws_byte_cursor src) {
+    AWS_PRECONDITION(aws_byte_buf_is_valid(buf));
+    AWS_PRECONDITION(aws_byte_cursor_is_valid(&src));
     return aws_byte_buf_write(buf, src.ptr, src.len);
 }
 
@@ -629,6 +881,7 @@ AWS_STATIC_IMPL bool aws_byte_buf_write_from_whole_cursor(
  cursor unchanged.
  */
 AWS_STATIC_IMPL bool aws_byte_buf_write_u8(struct aws_byte_buf *AWS_RESTRICT buf, uint8_t c) {
+    AWS_PRECONDITION(aws_byte_buf_is_valid(buf));
     return aws_byte_buf_write(buf, &c, 1);
 }
 
@@ -640,6 +893,7 @@ AWS_STATIC_IMPL bool aws_byte_buf_write_u8(struct aws_byte_buf *AWS_RESTRICT buf
  * cursor unchanged.
  */
 AWS_STATIC_IMPL bool aws_byte_buf_write_be16(struct aws_byte_buf *buf, uint16_t x) {
+    AWS_PRECONDITION(aws_byte_buf_is_valid(buf));
     x = aws_hton16(x);
     return aws_byte_buf_write(buf, (uint8_t *)&x, 2);
 }
@@ -652,6 +906,7 @@ AWS_STATIC_IMPL bool aws_byte_buf_write_be16(struct aws_byte_buf *buf, uint16_t 
  * cursor unchanged.
  */
 AWS_STATIC_IMPL bool aws_byte_buf_write_be32(struct aws_byte_buf *buf, uint32_t x) {
+    AWS_PRECONDITION(aws_byte_buf_is_valid(buf));
     x = aws_hton32(x);
     return aws_byte_buf_write(buf, (uint8_t *)&x, 4);
 }
@@ -664,6 +919,7 @@ AWS_STATIC_IMPL bool aws_byte_buf_write_be32(struct aws_byte_buf *buf, uint32_t 
  * cursor unchanged.
  */
 AWS_STATIC_IMPL bool aws_byte_buf_write_be64(struct aws_byte_buf *buf, uint64_t x) {
+    AWS_PRECONDITION(aws_byte_buf_is_valid(buf));
     x = aws_hton64(x);
     return aws_byte_buf_write(buf, (uint8_t *)&x, 8);
 }
