@@ -1,4 +1,4 @@
-# Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License"). You may not use
 # this file except in compliance with the License. A copy of the License is
@@ -12,15 +12,17 @@
 # limitations under the License.
 
 ###########
-#NOTE: If we don't use the unwindset, leave it empty
-#CBMC_UNWINDSET = --unwindset
+include ../Makefile.aws_byte_buf
+
+UNWINDSET +=
 
 CBMCFLAGS +=
 
-DEPENDENCIES =  $(HELPERDIR)/source/make_common_data_structures.c \
-		   $(HELPERDIR)/stubs/error.c \
-	       $(SRCDIR)/source/byte_buf.c \
-	       $(SRCDIR)/source/common.c
+DEPENDENCIES += $(HELPERDIR)/source/make_common_data_structures.c
+DEPENDENCIES += $(HELPERDIR)/source/proof_allocators.c
+DEPENDENCIES += $(HELPERDIR)/stubs/error.c
+DEPENDENCIES += $(SRCDIR)/source/byte_buf.c
+DEPENDENCIES += $(SRCDIR)/source/common.c
 
 ENTRY = aws_byte_buf_init_harness
 ###########

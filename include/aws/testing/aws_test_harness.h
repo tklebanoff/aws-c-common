@@ -19,7 +19,6 @@
 #include <aws/common/error.h>
 #include <aws/common/mutex.h>
 
-#include <assert.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -295,6 +294,8 @@ static int total_failures;
     do {                                                                                                               \
         const char *assert_expected = (expected);                                                                      \
         const char *assert_got = (got);                                                                                \
+        ASSERT_NOT_NULL(assert_expected);                                                                              \
+        ASSERT_NOT_NULL(assert_got);                                                                                   \
         if (strcmp(assert_expected, assert_got) != 0) {                                                                \
             fprintf(                                                                                                   \
                 AWS_TESTING_REPORT_FD, "%sExpected: \"%s\"; got: \"%s\": ", FAIL_PREFIX, assert_expected, assert_got); \
@@ -311,6 +312,9 @@ static int total_failures;
         size_t assert_ex_s = (expected_size);                                                                          \
         const uint8_t *assert_got_p = (const uint8_t *)(got);                                                          \
         size_t assert_got_s = (got_size);                                                                              \
+        if (assert_ex_s == 0 && assert_got_s == 0) {                                                                   \
+            break;                                                                                                     \
+        }                                                                                                              \
         if (assert_ex_s != assert_got_s) {                                                                             \
             fprintf(AWS_TESTING_REPORT_FD, "%sSize mismatch: %zu != %zu: ", FAIL_PREFIX, assert_ex_s, assert_got_s);   \
             if (!PRINT_FAIL_INTERNAL0(__VA_ARGS__)) {                                                                  \
@@ -343,138 +347,32 @@ struct aws_test_harness {
     int suppress_memcheck;
 };
 
-#ifdef _WIN32
-/* If I meet the engineer that wrote the dbghelp.h file for the windows 8.1 SDK we're gonna have words! */
-#    pragma warning(disable : 4091)
-#    include <Windows.h>
-#    include <dbghelp.h>
-
-struct win_symbol_data {
-    struct _SYMBOL_INFO sym_info;
-    char symbol_name[1024];
-};
-
-typedef BOOL __stdcall SymInitialize_fn(_In_ HANDLE hProcess, _In_opt_ PCSTR UserSearchPath, _In_ BOOL fInvadeProcess);
-
-typedef BOOL __stdcall SymFromAddr_fn(
-    _In_ HANDLE hProcess,
-    _In_ DWORD64 Address,
-    _Out_opt_ PDWORD64 Displacement,
-    _Inout_ PSYMBOL_INFO Symbol);
-
-#    if defined(_WIN64)
-typedef BOOL __stdcall SymGetLineFromAddr_fn(
-    _In_ HANDLE hProcess,
-    _In_ DWORD64 qwAddr,
-    _Out_ PDWORD pdwDisplacement,
-    _Out_ PIMAGEHLP_LINE64 Line64);
-#        define SymGetLineFromAddrName "SymGetLineFromAddr64"
-#    else
-typedef BOOL __stdcall SymGetLineFromAddr_fn(
-    _In_ HANDLE hProcess,
-    _In_ DWORD dwAddr,
-    _Out_ PDWORD pdwDisplacement,
-    _Out_ PIMAGEHLP_LINE Line);
-#        define SymGetLineFromAddrName "SymGetLineFromAddr"
-#    endif
-
+#if defined(_WIN32)
+#    include <windows.h>
 static LONG WINAPI s_test_print_stack_trace(struct _EXCEPTION_POINTERS *exception_pointers) {
-    (void)exception_pointers;
-    fprintf(stderr, "** Exception 0x%x occured **\n", exception_pointers->ExceptionRecord->ExceptionCode);
-    void *stack[1024];
-
-    HMODULE dbghelp = LoadLibraryA("DbgHelp.dll");
-    if (!dbghelp) {
-        fprintf(stderr, "Failed to load DbgHelp.dll.\n");
-        goto done;
-    }
-
-    SymInitialize_fn *p_SymInitialize = (SymInitialize_fn *)GetProcAddress(dbghelp, "SymInitialize");
-    if (!p_SymInitialize) {
-        fprintf(stderr, "Failed to load SymInitialize from DbgHelp.dll.\n");
-        goto done;
-    }
-
-    SymFromAddr_fn *p_SymFromAddr = (SymFromAddr_fn *)GetProcAddress(dbghelp, "SymFromAddr");
-    if (!p_SymFromAddr) {
-        fprintf(stderr, "Failed to load SymFromAddr from DbgHelp.dll.\n");
-        goto done;
-    }
-
-    SymGetLineFromAddr_fn *p_SymGetLineFromAddr =
-        (SymGetLineFromAddr_fn *)GetProcAddress(dbghelp, SymGetLineFromAddrName);
-    if (!p_SymGetLineFromAddr) {
-        fprintf(stderr, "Failed to load " SymGetLineFromAddrName " from DbgHelp.dll.\n");
-        goto done;
-    }
-
-    HANDLE process = GetCurrentProcess();
-    p_SymInitialize(process, NULL, TRUE);
-    WORD num_frames = CaptureStackBackTrace(0, 1024, stack, NULL);
-    DWORD64 displacement = 0;
-    DWORD disp = 0;
-
-    fprintf(stderr, "Stack Trace:\n");
-    for (size_t i = 0; i < num_frames; ++i) {
-        uintptr_t address = (uintptr_t)stack[i];
-        struct win_symbol_data sym_info;
-        AWS_ZERO_STRUCT(sym_info);
-        sym_info.sym_info.MaxNameLen = sizeof(sym_info.symbol_name);
-        sym_info.sym_info.SizeOfStruct = sizeof(struct _SYMBOL_INFO);
-        p_SymFromAddr(process, address, &displacement, &sym_info.sym_info);
-
-        IMAGEHLP_LINE line;
-        line.SizeOfStruct = sizeof(IMAGEHLP_LINE);
-        if (p_SymGetLineFromAddr(process, address, &disp, &line)) {
-            if (i != 0) {
-                fprintf(
-                    stderr,
-                    "at %s(%s:%lu): address: 0x%llX\n",
-                    sym_info.sym_info.Name,
-                    line.FileName,
-                    line.LineNumber,
-                    sym_info.sym_info.Address);
-            }
-        }
-    }
-
-done:
-    if (dbghelp) {
-        FreeLibrary(dbghelp);
-    }
+#    if !defined(AWS_HEADER_CHECKER)
+    aws_backtrace_print(stderr, exception_pointers);
+#    endif
     return EXCEPTION_EXECUTE_HANDLER;
 }
-#elif !defined __ANDROID__
-#    include <execinfo.h>
+#elif defined(AWS_HAVE_EXECINFO)
 #    include <signal.h>
-
 static void s_print_stack_trace(int sig, siginfo_t *sig_info, void *user_data) {
-    (void)sig_info;
+    (void)sig;
     (void)user_data;
-
-    void *array[100];
-    char **strings;
-    size_t i;
-
-    fprintf(stderr, "** Signal Thrown %d**\n", sig);
-    int size = (int)backtrace(array, 10);
-    strings = backtrace_symbols(array, size);
-    fprintf(stderr, "Stack Trace:\n");
-
-    for (i = 0; i < size; i++)
-        fprintf(stderr, "%s\n", strings[i]);
-
-    free(strings);
+#    if !defined(AWS_HEADER_CHECKER)
+    aws_backtrace_print(stderr, sig_info);
+#    endif
     exit(-1);
 }
 #endif
 
 static inline int s_aws_run_test_case(struct aws_test_harness *harness) {
-    assert(harness->run);
+    AWS_ASSERT(harness->run);
 
-#ifdef _WIN32
+#if defined(_WIN32)
     SetUnhandledExceptionFilter(s_test_print_stack_trace);
-#elif !defined __ANDROID__
+#elif defined(AWS_HAVE_EXECINFO)
     struct sigaction sa;
     memset(&sa, 0, sizeof(struct sigaction));
     sigemptyset(&sa.sa_mask);
@@ -560,6 +458,7 @@ static inline int enable_vt_mode(void) {
     static struct aws_allocator name##_allocator = {                                                                   \
         s_mem_acquire_malloc,                                                                                          \
         s_mem_release_free,                                                                                            \
+        NULL,                                                                                                          \
         NULL,                                                                                                          \
         &name##_alloc_impl,                                                                                            \
     };

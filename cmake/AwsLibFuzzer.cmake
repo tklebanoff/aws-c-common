@@ -21,7 +21,8 @@ set(FUZZ_TESTS_MAX_TIME 60 CACHE STRING "Max time to run each fuzz test")
 # Options:
 #  fuzz_files: The list of fuzz test files
 #  other_files: Other files to link into each fuzz test
-function(aws_add_fuzz_tests fuzz_files other_files)
+#  corpus_dir:  directory where corpus files can be found
+function(aws_add_fuzz_tests fuzz_files other_files corpus_dir)
     if(ENABLE_FUZZ_TESTS)
         if(NOT ENABLE_SANITIZERS)
             message(FATAL_ERROR "ENABLE_FUZZ_TESTS is set but ENABLE_SANITIZERS is set to OFF")
@@ -39,11 +40,19 @@ function(aws_add_fuzz_tests fuzz_files other_files)
             add_executable(${FUZZ_BINARY_NAME} ${test_file} ${other_files})
             target_link_libraries(${FUZZ_BINARY_NAME} PRIVATE ${CMAKE_PROJECT_NAME})
             aws_set_common_properties(${FUZZ_BINARY_NAME})
-            aws_add_sanitizers(${FUZZ_BINARY_NAME} SANITIZERS "${${CMAKE_PROJECT_NAME}_SANITIZERS};fuzzer")
+            aws_add_sanitizers(${FUZZ_BINARY_NAME} SANITIZERS "fuzzer")
             target_compile_definitions(${FUZZ_BINARY_NAME} PRIVATE AWS_UNSTABLE_TESTING_API=1)
             target_include_directories(${FUZZ_BINARY_NAME} PRIVATE ${CMAKE_CURRENT_LIST_DIR})
 
-            add_test(NAME fuzz_${TEST_FILE_NAME} COMMAND ${FUZZ_BINARY_NAME} -timeout=1 -max_total_time=${FUZZ_TESTS_MAX_TIME})
+            if (corpus_dir)
+                file(TO_NATIVE_PATH "${corpus_dir}/${TEST_FILE_NAME}" TEST_CORPUS_DIR)
+            endif()
+
+            if (TEST_CORPUS_DIR AND (EXISTS "${TEST_CORPUS_DIR}"))
+                add_test(NAME fuzz_${TEST_FILE_NAME} COMMAND ${FUZZ_BINARY_NAME} -timeout=1 -max_total_time=${FUZZ_TESTS_MAX_TIME} "${TEST_CORPUS_DIR}")
+            else()
+                add_test(NAME fuzz_${TEST_FILE_NAME} COMMAND ${FUZZ_BINARY_NAME} -timeout=1 -max_total_time=${FUZZ_TESTS_MAX_TIME})
+            endif()
         endforeach()
     endif()
 endfunction()

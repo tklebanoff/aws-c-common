@@ -19,6 +19,11 @@ default: report
 sinclude Makefile.local
 
 ################################################################
+# Define some constants that are hard to reference otherwise
+SPACE :=$() $()
+COMMA :=,
+
+################################################################
 # Define locations and binaries
 ABSTRACTIONS ?= ""
 BASEDIR ?= $(abspath ../../../..)
@@ -49,63 +54,127 @@ SIMPLIFY ?= 0
 SRCDIR ?= $(abspath ../../..)
 UNWIND ?= 0
 VIEWER ?= cbmc-viewer
+CBMC_VERBOSITY ?= ""
 
 ################################################################
+# Preprocess the unwindset
+
+ifneq ($(UNWINDSET),)
+CBMC_UNWINDSET := --unwindset $(subst $(SPACE),$(COMMA),$(strip $(UNWINDSET)))
+endif
+
+################################################################
+# Set defines that will be used by the projects
+CBMC_OBJECT_BITS ?= 8
+CBMCFLAGS +=  --object-bits $(CBMC_OBJECT_BITS)
+DEFINES += -DCBMC_OBJECT_BITS=$(CBMC_OBJECT_BITS)
+DEFINES += -DCBMC=1
+
+################################################################
+# Don't execute deep checks by default
+AWS_DEEP_CHECKS ?= 0
+DEFINES += -DAWS_DEEP_CHECKS=$(AWS_DEEP_CHECKS)
+
+################################################################
+# We always override allocator functions with our own allocator
+# Removing the function from the goto program helps CBMC's
+# function pointer analysis.
+DEFAULT_REMOVE_FUNCTION_BODY += --remove-function-body aws_default_allocator
+DEFAULT_REMOVE_FUNCTION_BODY += --remove-function-body s_cf_allocator_allocate
+DEFAULT_REMOVE_FUNCTION_BODY += --remove-function-body s_cf_allocator_copy_description
+DEFAULT_REMOVE_FUNCTION_BODY += --remove-function-body s_cf_allocator_deallocate
+DEFAULT_REMOVE_FUNCTION_BODY += --remove-function-body s_cf_allocator_preferred_size
+DEFAULT_REMOVE_FUNCTION_BODY += --remove-function-body s_cf_allocator_reallocate
+DEFAULT_REMOVE_FUNCTION_BODY += --remove-function-body s_default_calloc
+DEFAULT_REMOVE_FUNCTION_BODY += --remove-function-body s_default_free
+DEFAULT_REMOVE_FUNCTION_BODY += --remove-function-body s_default_malloc
+DEFAULT_REMOVE_FUNCTION_BODY += --remove-function-body s_default_realloc
+################################################################
+# We override abort() to be assert(0), as it is not caught by
+# CBMC as a violation
+ABSTRACTIONS += $(HELPERDIR)/stubs/abort_override_assert_false.c
+DEFAULT_REMOVE_FUNCTION_BODY += --remove-function-body abort
+################################################################
+
+REMOVE_FUNCTION_BODY ?= $(DEFAULT_REMOVE_FUNCTION_BODY)
+REMOVE_FUNCTION_BODY += $(ADDITIONAL_REMOVE_FUNCTION_BODY)
+DEPENDENT_GOTOS = $(patsubst %.c,%.goto,$(DEPENDENCIES))
 
 # Here, whenever there is a change in any of ANSI-C source
 # dependency files, make will take action. However, to make
 # sure changes in the headers files will also trigger make,
 # the user must run make clean first.
-$(ENTRY)1.goto: $(ENTRY).c $(DEPENDENCIES)
-	$(GOTO_CC) $< --function $(ENTRY) $(DEPENDENCIES) $(INC) -o $@ \
-	        2>&1 | tee $(ENTRY)1.log
+$(ENTRY)0.goto: $(ENTRY).c $(DEPENDENT_GOTOS)
+	$(GOTO_CC) $< --export-function-local-symbols $(CBMC_VERBOSITY) \
+	  --function $(ENTRY) $(DEPENDENT_GOTOS) $(INC) $(DEFINES) -o $@ \
+	  2>&1 | tee $(ENTRY)1.log ; exit $${PIPESTATUS[0]}
+
+$(ENTRY)1.goto: $(ENTRY)0.goto
+ifeq ($(REMOVE_FUNCTION_BODY), "")
+	cp $< $@
+	echo "Not removing function bodies" | tee $(ENTRY)1.log ; exit $${PIPESTATUS[0]}
+else
+	$(GOTO_INSTRUMENT) $(REMOVE_FUNCTION_BODY) $< $@ \
+		2>&1 | tee $(ENTRY)2.log ; exit $${PIPESTATUS[0]}
+endif
 
 $(ENTRY)2.goto: $(ENTRY)1.goto
 ifeq ($(ABSTRACTIONS), "")
-	$(GOTO_INSTRUMENT) $< $@ \
-		2>&1 | tee $(ENTRY)2.log
+	cp $< $@
+	echo "Not implementing abstractions" | tee $(ENTRY)2.log ; exit $${PIPESTATUS[0]}
 else
-	$(GOTO_INSTRUMENT) $(ABSTRACTIONS) --add-library $< $@ \
-		2>&1 | tee $(ENTRY)2.log
+	$(GOTO_CC) --function $(ENTRY) $(ABSTRACTIONS) $< $(INC) $(DEFINES) -o $@ \
+		2>&1 | tee $(ENTRY)2.log ; exit $${PIPESTATUS[0]}
 endif
 
 # Simplify and constant propagation may benefit from unwinding first
 $(ENTRY)3.goto: $(ENTRY)2.goto
 ifeq ($(UNWIND_GOTO), 1)
 	$(GOTO_INSTRUMENT) $(UNWINDING) $< $@ \
-		2>&1 | tee $(ENTRY)3.log
+		2>&1 | tee $(ENTRY)3.log ; exit $${PIPESTATUS[0]}
 else
 	cp $< $@
+	echo "Not unwinding goto program" | tee $(ENTRY)3.log ; exit $${PIPESTATUS[0]}
 endif
 
 # Skip simplify (and hence generate-function-body) until missing source locations debugged
 $(ENTRY)4.goto: $(ENTRY)3.goto
 ifeq ($(SIMPLIFY), 1)
 	$(GOTO_INSTRUMENT) --generate-function-body '.*' $< $@ \
-		2>&1 | tee $(ENTRY)4.log
+		2>&1 | tee $(ENTRY)4.log ; exit $${PIPESTATUS[0]}
 else
 	cp $< $@
+	echo "Not generating-function-bodies in goto program" | tee $(ENTRY)4.log ; exit $${PIPESTATUS[0]}
 endif
 
 # Skip simplify (and hence generate-function-body) until missing source locations debugged
 $(ENTRY)5.goto: $(ENTRY)4.goto
 ifeq ($(SIMPLIFY), 1)
 	$(GOTO_ANALYZER) --simplify $@ $< \
-		2>&1 | tee $(ENTRY)5.log
+		2>&1 | tee $(ENTRY)5.log ; exit $${PIPESTATUS[0]}
 else
 	cp $< $@
+	echo "Not simplfying goto program" | tee $(ENTRY)5.log ; exit $${PIPESTATUS[0]}
 endif
 
 $(ENTRY)6.goto: $(ENTRY)5.goto
 	$(GOTO_INSTRUMENT) --drop-unused-functions $< $@ \
-		2>&1 | tee $(ENTRY)6.log
+		2>&1 | tee $(ENTRY)6.log ; exit $${PIPESTATUS[0]}
 
 $(ENTRY)7.goto: $(ENTRY)6.goto
 	$(GOTO_INSTRUMENT) --slice-global-inits $< $@ \
-		2>&1 | tee $(ENTRY)7.log
+		2>&1 | tee $(ENTRY)7.log ; exit $${PIPESTATUS[0]}
 
 $(ENTRY).goto: $(ENTRY)7.goto
 	cp $< $@
+
+# Catch-all used for building goto-binaries of the individual
+# dependencies, which are then linked in the $(ENTRY)0.goto rule above
+%.goto: %.c
+	$(GOTO_CC) -c $< --export-function-local-symbols $(CBMC_VERBOSITY) \
+	  $(INC) $(DEFINES) -o $@ \
+	  2>&1 | tee $(dir $<)/$(notdir $<).log ; exit $${PIPESTATUS[0]}
+
 
 goto: $(ENTRY).goto
 
@@ -135,8 +204,9 @@ report: cbmc.log property.xml coverage.xml
 	--block coverage.xml
 
 clean:
-	$(RM) $(ENTRY).goto $(ENTRY)[0-7].goto
-	$(RM) $(ENTRY)[0-7].log $(ENTRY).log
+	$(RM) *.goto
+	$(RM) $(DEPENDENT_GOTOS)
+	$(RM) *.log
 	$(RM) cbmc.log property.xml coverage.xml TAGS
 	$(RM) *~ \#*
 
